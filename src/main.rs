@@ -1,3 +1,5 @@
+mod renderers;
+
 use std::io::prelude::*;
 use std::process::{Command, Stdio};
 use iter_read::IterRead;
@@ -13,6 +15,8 @@ use std::thread;
 use std::sync::mpsc::{channel, Sender};
 use clap::Parser;
 
+use renderers::Renderer;
+
 #[derive(Parser)]
 struct Cli {
     #[clap(validator = file_exists)]
@@ -21,6 +25,8 @@ struct Cli {
     framerate: u32,
     #[clap(short = 'h', long, default_value_t = 2.2)]
     char_height: f32,
+    #[clap(short, long, arg_enum, default_value_t = Renderer::PixelChar)]
+    mode: Renderer,
 }
 
 fn file_exists(filename: &str) -> Result<(), String> {
@@ -49,6 +55,7 @@ fn main() {
     let mut pipe = process.stdout.unwrap();
 
     let mut stdout = AlternateScreen::from(stdout()).into_raw_mode().unwrap();
+    // let mut stdout = stdout().into_raw_mode().unwrap();
 
     let (tx, rx) = channel();
     let evt_thread = thread::Builder::new()
@@ -56,11 +63,15 @@ fn main() {
         .spawn(move || event_thread(tx))
         .unwrap();
 
+    let mut renderer = cli.mode;
+
     let mut i = 0;
     'frame_loop: loop {
         for msg in rx.try_iter() {
             match msg {
                 Message::Quit => break 'frame_loop,
+                Message::NextMode => renderer = renderer.next_mode(),
+                Message::LastMode => renderer = renderer.last_mode(),
             }
         }
 
@@ -81,22 +92,10 @@ fn main() {
 
         // let (tw, th) = termion::terminal_size().unwrap();
         // let (tw, th) = (tw as u32, th as u32 - 1);
-        let (tw, th) = calc_dims(img.width(), img.height(), cli.char_height);
-        img = image::imageops::resize(&img, tw as u32, th as u32, image::imageops::FilterType::Triangle);
-        let mut frame = String::new();
-        for j in 0..th {
-            for k in 0..tw {
-                let px = img.get_pixel(k, j).channels();
-                //println!("{}, {}, {}", px.r, px.g, px.b);
-                frame.push_str(&*"\u{2588}".truecolor(px[0], px[1], px[2]).to_string())
-            }
-            frame.push('\n');
-        }
-        frame.push_str("press 'q' to exit: ");
 
         write!(stdout, "{}", termion::cursor::Goto(1, 1));
         write!(stdout, "{}", termion::clear::All);
-        write!(stdout, "{}", frame).unwrap();
+        write!(stdout, "{}", renderer.render(&img, cli.char_height)).unwrap();
         stdout.flush().unwrap();
 
         i += 1;
@@ -105,19 +104,10 @@ fn main() {
     evt_thread.join();
 }
 
-fn calc_dims(imgw: u32, imgh: u32, char_height: f32) -> (u32, u32) {
-    let (tw, th) = termion::terminal_size().unwrap();
-    let term_ratio = (tw as f32 / (th as f32 - 1.0));
-    let img_ratio = (imgw as f32 / imgh as f32) * char_height;
-    if img_ratio > term_ratio {
-        (tw as u32, std::cmp::min((tw as f32 / img_ratio) as u32, (th - 1) as u32))
-    } else {
-        (std::cmp::min(((th as f32 - 1.0) * img_ratio) as u32, tw as u32), th as u32)
-    }
-}
-
 enum Message {
     Quit,
+    NextMode,
+    LastMode,
 }
 
 fn event_thread(tx: Sender<Message>) {
@@ -127,6 +117,12 @@ fn event_thread(tx: Sender<Message>) {
             Event::Key(Key::Char('q')) => {
                 tx.send(Message::Quit);
                 break;
+            },
+            Event::Key(Key::Char('m')) => {
+                tx.send(Message::NextMode);
+            },
+            Event::Key(Key::Char('M')) => {
+                tx.send(Message::LastMode);
             },
             _ => {},
         }
