@@ -1,0 +1,15 @@
+[package]
+name = "unicode_player"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bmp = "0.5.0"
+image = "0.24.1"
+iter-read = "0.3.1"
+colored = "2"
+pancurses = "0.17"
+termion = "*"
+clap = { version = "3.1.2", features = ["derive"] }
