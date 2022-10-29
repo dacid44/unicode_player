@@ -1,7 +1,9 @@
+use std::iter;
 use colored::Colorize;
 use hex_literal::hex;
 use image::{Rgb, RgbImage};
 use clap::ArgEnum;
+use crate::tui::Area;
 
 #[derive(Clone, ArgEnum)]
 pub enum Renderer {
@@ -39,6 +41,15 @@ impl Renderer {
         }
     }
 
+    pub(crate) fn name(&self) -> String {
+        match self {
+            Renderer::PixelChar => "Full Chars".to_string(),
+            Renderer::HalfChar => "Half Chars".to_string(),
+            Renderer::Quarters => "Quarters".to_string(),
+            Renderer::Braille => "Braille".to_string(),
+        }
+    }
+
     fn calc_dims(&self, img_dims: (u32, u32), char_height: f32) -> (u32, u32) {
         let char_height = char_height * self.subpixels().0 as f32 / self.subpixels().1 as f32;
         let (tw, th) = {
@@ -68,6 +79,29 @@ impl Renderer {
         }
     }
 
+    fn calc_dims_fixed(&self, img_dims: (u32, u32), bounds: Area, char_height: f32) -> (Area, u32, u32) {
+        let img_ratio = img_dims.0 as f32 / img_dims.1 as f32 * char_height;
+        let bounds_ratio = bounds.aspect_ratio();
+
+        fn fudge_even_odd(n: u32, cmp: u32) -> u32 {
+            if n % 2 == cmp % 2 {
+                n
+            } else {
+                n - 1
+            }
+        }
+
+        if img_ratio > bounds_ratio {
+            let mut h = fudge_even_odd((bounds.width as f32 / img_ratio).round() as u32, bounds.height).min(bounds.height);
+            let gap = (bounds.height - h) / 2;
+            (Area { width: bounds.width * self.subpixels().0, height: h * self.subpixels().1 }, 0, gap)
+        } else {
+            let mut w = fudge_even_odd((bounds.height as f32 * img_ratio).round() as u32, bounds.width).min(bounds.width);
+            let gap = (bounds.width - w) / 2;
+            (Area { width: w * self.subpixels().0, height: bounds.height * self.subpixels().1 }, gap, 0)
+        }
+    }
+
     pub fn render(&self, img: &RgbImage, char_height: f32) -> String {
         let dims = self.calc_dims((img.width(), img.height()), char_height);
         let scaled_img = image::imageops::resize(img, dims.0, dims.1, image::imageops::FilterType::Triangle);
@@ -76,10 +110,38 @@ impl Renderer {
             for j in (0..dims.0).step_by(self.subpixels().0 as usize) {
                 frame.push_str(&*self.render_pixel(&scaled_img, (j, i)))
             }
-            frame.push('\n');
+            frame.push_str("\r\n");
         }
         frame.push_str("press 'm'/'M' to cycle mode, 'q' to exit: ");
         frame
+    }
+
+    pub(crate) fn render_player(&self, img: &RgbImage, bounds: Area, char_height: f32) -> Vec<String> {
+        let (dims, gap_x, gap_y) = self.calc_dims_fixed((img.width(), img.height()), bounds, char_height);
+        let scaled_img = image::imageops::resize(img, dims.width, dims.height, image::imageops::FilterType::Triangle);
+
+        let vert_spacer = " ".repeat(bounds.width as usize);
+        let horiz_spacer = " ".repeat(gap_x as usize);
+
+        iter::repeat(vert_spacer.clone())
+            .take(gap_y as usize)
+            .chain(
+                (0..dims.height)
+                    .step_by(self.subpixels().1 as usize)
+                    .map(|i| format!(
+                        "{}{}{}",
+                        horiz_spacer,
+                        (0..dims.width)
+                            .step_by(self.subpixels().0 as usize)
+                            .map(|j| self.render_pixel(&scaled_img, (j, i))).collect::<String>(),
+                        horiz_spacer,
+                    ))
+            )
+            .chain(
+                iter::repeat(vert_spacer)
+                    .take(gap_y as usize)
+            )
+            .collect()
     }
 
     fn render_pixel(&self, img: &RgbImage, loc: (u32, u32)) -> String {
