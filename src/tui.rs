@@ -1,14 +1,19 @@
 use std::borrow::BorrowMut;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Stdin, stdin, Stdout, stdout, Write};
 use std::iter;
+use std::sync::Arc;
+use std::time::Duration;
 use colored::Colorize;
 use image::RgbImage;
-use termion::event::{Event, Key};
+use termion::event::{Event, Key, Event as TmEvent, Key as TmKey};
+use crossterm::event::{Event as CtEvent, KeyEvent as CtKeyEvent, KeyEventKind as CtKeyEventKind, KeyCode as CtKeyCode};
+use termion::input::TermRead;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 use crate::{EVENT_THREAD_ACCEPT_EXIT, Renderer, youtube};
+use crate::terminal::TermEvent;
 
 const HELP_TEXT: &'static str = "Press 'm'/'M' to cycle mode, 'q' to exit, 'r' to restart, 'p' to play/pause: ";
 
@@ -55,8 +60,8 @@ impl Tui {
         self.cursor_pos.1
     }
 
-    pub(crate) fn handle_event(&mut self, event: Event) -> EventResponse {
-        if matches!(event, Event::Key(Key::Char('\t'))) {
+    pub(crate) fn handle_event(&mut self, event: TermEvent) -> EventResponse {
+        if matches!(event, TermEvent::Char('\t')) {
             self.focus = self.focus.next_focus();
             *EVENT_THREAD_ACCEPT_EXIT.lock().unwrap() = self.focus.should_exit();
             return EventResponse::Ok;
@@ -64,23 +69,23 @@ impl Tui {
 
         match self.focus {
             TuiFocus::Player => match event {
-                Event::Key(Key::Char('q')) => return EventResponse::Quit,
-                Event::Key(Key::Char('m')) => self.player.next_renderer(),
-                Event::Key(Key::Char('M')) => self.player.last_renderer(),
-                Event::Key(Key::Char('r')) => return EventResponse::Restart,
-                Event::Key(Key::Char('p')) => return EventResponse::PlayPause,
+                TermEvent::Char('q') => return EventResponse::Quit,
+                TermEvent::Char('m') => self.player.next_renderer(),
+                TermEvent::Char('M') => self.player.last_renderer(),
+                TermEvent::Char('r') => return EventResponse::Restart,
+                TermEvent::Char('p') => return EventResponse::PlayPause,
                 _ => {},
             }
             TuiFocus::Search => match event {
-                Event::Key(Key::Backspace) => self.search.handle_backspace(),
-                Event::Key(Key::Down) => self.search.handle_arrow_down(),
-                Event::Key(Key::Up) => self.search.handle_arrow_up(),
-                Event::Key(Key::Char('\n')) => {
+                TermEvent::Backspace => self.search.handle_backspace(),
+                TermEvent::Down => self.search.handle_arrow_down(),
+                TermEvent::Up => self.search.handle_arrow_up(),
+                TermEvent::Char('\n') => {
                     if let Some(path) = self.search.handle_enter() {
                         return EventResponse::ChangeSource(path);
                     }
                 },
-                Event::Key(Key::Char(c)) => self.search.handle_char(c),
+                TermEvent::Char(c) => self.search.handle_char(c),
                 _ => {},
             }
         }
@@ -88,7 +93,7 @@ impl Tui {
         EventResponse::Ok
     }
 
-    pub(crate) fn render(&mut self, img: &RgbImage, path: &str) -> String {
+    pub(crate) fn render(&mut self, img: &RgbImage, path: &str, frame_time: Duration) -> String {
         let mut frame = self.player.render(img, self.char_height);
 
 
@@ -100,11 +105,20 @@ impl Tui {
 
         let info_spacer = " ".repeat(self.player.bounds.width as usize - (longest + 2));
 
+        let frametime_str = format!("{:?}", frame_time);
+
         frame.extend(
             [
                 format!("╔{}╗{}", "═".repeat(longest), info_spacer.clone()),
                 format!("║ Now Playing: {}{}║{}", path, " ".repeat(longest - path.width_cjk() - 14), info_spacer.clone()),
-                format!("║ Current Renderer: {}{}║{}", renderer_name, " ".repeat(longest - renderer_name.len() - 19), info_spacer.clone()),
+                format!(
+                    "║ Current Renderer: {}, Frametime: {}{}║{}",
+                    renderer_name,
+                    frametime_str,
+                    // " ".repeat(longest - renderer_name.len() - 19),
+                    " ".repeat(longest - renderer_name.len() - frametime_str.len() - 32),
+                    info_spacer.clone()
+                ),
                 format!("║ {}{}║{}", HELP_TEXT, " ".repeat(longest - HELP_TEXT.len() - 1), info_spacer.clone()),
                 format!("╚{}╝{}", "═".repeat(longest), info_spacer),
             ].into_iter()
@@ -374,12 +388,12 @@ impl SearchResult {
             })
             .collect::<String>();
 
-        let mut f = OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open("5.txt")
-            .unwrap();
-        writeln!(f, "{:?}", self).unwrap();
+        // let mut f = OpenOptions::new()
+        //     .write(true)
+        //     .append(true)
+        //     .open("5.txt")
+        //     .unwrap();
+        // writeln!(f, "{:?}", self).unwrap();
 
         frame.push(format!("║ {}{} ║", title_string.bold(), " ".repeat(display_area - title_string.width_cjk())));
 

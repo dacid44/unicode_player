@@ -36,12 +36,12 @@ pub(crate) fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn std::erro
     ))?
         .text()?;
 
-    let mut f = File::create("1.txt").unwrap();
+    // let mut f = File::create("1.txt").unwrap();
 
     let html = Html::parse_document(&response);
-    let mut f = File::create("2.txt").unwrap();
+    // let mut f = File::create("2.txt").unwrap();
     let script_selector = Selector::parse("script").unwrap();
-    let mut f = File::create("3.txt").unwrap();
+    // let mut f = File::create("3.txt").unwrap();
 
     let data = html.select(&script_selector)
         .filter(|t| t.inner_html().starts_with("var ytInitialData"))
@@ -49,11 +49,11 @@ pub(crate) fn search(query: &str) -> Result<Vec<SearchResult>, Box<dyn std::erro
         .next()
         .ok_or("No ytInitialData found")?;
 
-    let mut f = File::create("4.txt").unwrap();
+    // let mut f = File::create("4.txt").unwrap();
 
     let data: Value = serde_json::from_str(&data[20..data.len() - 1])?;
 
-    let mut f = File::create("5.txt").unwrap();
+    // let mut f = File::create("5.txt").unwrap();
 
     fn parse_video(video: &Value) -> Option<SearchResult> {
         Some(SearchResult {
