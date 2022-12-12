@@ -1,11 +1,15 @@
 use std::borrow::BorrowMut;
-use std::io::{Read, Stdin, stdin, Stdout, stdout, Write};
-use crossterm::event::{Event as CtEvent, KeyEvent as CtKeyEvent, KeyEventKind as CtKeyEventKind, KeyCode as CtKeyCode};
+use std::io::{stdin, Stdin, stdout, Stdout, Write};
+
+use crossterm::event::{
+    Event as CtEvent, KeyCode as CtKeyCode, KeyEvent as CtKeyEvent, KeyEventKind as CtKeyEventKind,
+};
+use termion::event::{Event as TmEvent, Key as TmKey};
 use termion::input::TermRead;
-use termion::event::{Event, Key, Event as TmEvent, Key as TmKey};
+use termion::raw::IntoRawMode;
+use termion::screen::IntoAlternateScreen;
 
-
-pub(crate) trait TermWrite { }
+pub(crate) trait TermWrite {}
 
 // TODO: Maybe change to two separate types and compile to one or the other based on OS
 pub(crate) enum TermWriter {
@@ -13,12 +17,12 @@ pub(crate) enum TermWriter {
     Crossterm(Stdout),
 }
 
-impl TermWrite for TermWriter { }
+impl TermWrite for TermWriter {}
 
 impl Drop for TermWriter {
     fn drop(&mut self) {
         match self {
-            Self::Termion(_) => { },
+            Self::Termion(_) => {}
             Self::Crossterm(w) => {
                 crossterm::terminal::disable_raw_mode().unwrap();
                 crossterm::execute!(w, crossterm::terminal::LeaveAlternateScreen).unwrap();
@@ -29,7 +33,7 @@ impl Drop for TermWriter {
 
 pub(crate) struct TermUtility;
 
-impl TermWrite for TermUtility { }
+impl TermWrite for TermUtility {}
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum TermKind {
@@ -39,7 +43,7 @@ pub(crate) enum TermKind {
 
 pub(crate) enum TermEventStream {
     Termion(termion::input::Events<Stdin>),
-    Crossterm
+    Crossterm,
 }
 
 impl Iterator for TermEventStream {
@@ -51,7 +55,7 @@ impl Iterator for TermEventStream {
                 Self::Termion(events) => TermEvent::from_termion(events.next()?.unwrap()),
                 Self::Crossterm => TermEvent::from_crossterm(crossterm::event::read().unwrap()),
             } {
-                break (term_event.detect_quit(), term_event)
+                break (term_event.detect_quit(), term_event);
             }
         })
     }
@@ -89,10 +93,11 @@ impl Terminal<TermWriter> {
     pub(crate) fn new_termion() -> Self {
         Self {
             writer: TermWriter::Termion(
-                termion::raw::IntoRawMode::into_raw_mode(
-                    termion::screen::AlternateScreen::from(stdout())
-                )
+                stdout()
+                    .into_alternate_screen()
                     .unwrap()
+                    .into_raw_mode()
+                    .unwrap(),
             ),
             kind: TermKind::Termion,
         }
@@ -104,7 +109,7 @@ impl Terminal<TermWriter> {
         crossterm::terminal::enable_raw_mode().unwrap();
         Self {
             writer: TermWriter::Crossterm(writer),
-            kind: TermKind::Termion,
+            kind: TermKind::Crossterm,
         }
     }
 }
@@ -129,6 +134,8 @@ impl Write for Terminal<TermWriter> {
 pub(crate) enum TermEvent {
     Char(char),
     Backspace,
+    Tab,
+    Enter,
     Up,
     Down,
     Left,
@@ -138,6 +145,8 @@ pub(crate) enum TermEvent {
 impl TermEvent {
     fn from_termion(event: TmEvent) -> Option<Self> {
         match event {
+            TmEvent::Key(TmKey::Char('\t')) => Some(Self::Tab),
+            TmEvent::Key(TmKey::Char('\n')) => Some(Self::Enter),
             TmEvent::Key(TmKey::Char(c)) => Some(Self::Char(c)),
             TmEvent::Key(TmKey::Backspace) => Some(Self::Backspace),
             TmEvent::Key(TmKey::Up) => Some(Self::Up),
@@ -149,10 +158,17 @@ impl TermEvent {
     }
 
     fn from_crossterm(event: CtEvent) -> Option<Self> {
-        if let CtEvent::Key(CtKeyEvent { code: key_code, kind: CtKeyEventKind::Release, .. }) = event {
+        if let CtEvent::Key(CtKeyEvent {
+            code: key_code,
+            kind: CtKeyEventKind::Press,
+            ..
+        }) = event
+        {
             match key_code {
                 CtKeyCode::Char(c) => Some(Self::Char(c)),
                 CtKeyCode::Backspace => Some(Self::Backspace),
+                CtKeyCode::Tab => Some(Self::Tab),
+                CtKeyCode::Enter => Some(Self::Enter),
                 CtKeyCode::Up => Some(Self::Up),
                 CtKeyCode::Down => Some(Self::Down),
                 CtKeyCode::Left => Some(Self::Left),

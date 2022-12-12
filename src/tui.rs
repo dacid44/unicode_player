@@ -1,21 +1,16 @@
-use std::borrow::BorrowMut;
-use std::error::Error;
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Stdin, stdin, Stdout, stdout, Write};
 use std::iter;
-use std::sync::Arc;
 use std::time::Duration;
+
 use colored::Colorize;
 use image::RgbImage;
-use termion::event::{Event, Key, Event as TmEvent, Key as TmKey};
-use crossterm::event::{Event as CtEvent, KeyEvent as CtKeyEvent, KeyEventKind as CtKeyEventKind, KeyCode as CtKeyCode};
-use termion::input::TermRead;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
-use crate::{EVENT_THREAD_ACCEPT_EXIT, Renderer, youtube};
-use crate::terminal::TermEvent;
 
-const HELP_TEXT: &'static str = "Press 'm'/'M' to cycle mode, 'q' to exit, 'r' to restart, 'p' to play/pause: ";
+use crate::terminal::{TermEvent, TermWrite, Terminal};
+use crate::{youtube, Renderer, EVENT_THREAD_ACCEPT_EXIT};
+
+const HELP_TEXT: &str =
+    "Press 'm'/'M' to cycle mode, 'q' to exit, 'r' to restart, 'p' to play/pause: ";
 
 pub(crate) struct Tui {
     player: Player,
@@ -27,28 +22,36 @@ pub(crate) struct Tui {
 }
 
 impl Tui {
-    pub(crate) fn new(renderer: Renderer, char_height: f32) -> Self {
+    pub(crate) fn new(
+        renderer: Renderer,
+        char_height: f32,
+        terminal: &Terminal<impl TermWrite>,
+    ) -> Self {
         let mut tui = Self {
             player: Player::new(0, 0, renderer),
             search: Search::new(0, 0),
             focus: TuiFocus::Player,
-            bounds: Area { width: 0, height: 0 },
+            bounds: Area {
+                width: 0,
+                height: 0,
+            },
             cursor_pos: (0, 0),
-            char_height
+            char_height,
         };
-        tui.update_size();
+        tui.update_size(terminal);
         tui
     }
 
-    pub(crate) fn update_size(&mut self) {
-        let mut dims = termion::terminal_size().unwrap();
+    pub(crate) fn update_size(&mut self, terminal: &Terminal<impl TermWrite>) {
+        let mut dims = terminal.size();
         if dims.0 == 0 || dims.1 == 0 {
             dims = (80, 24)
         }
 
         self.bounds.width = dims.0 as u32;
         self.bounds.height = dims.1 as u32;
-        self.player.update_size(self.bounds.width - 40, self.bounds.height - 5);
+        self.player
+            .update_size(self.bounds.width - 40, self.bounds.height - 5);
         self.search.update_size(40, self.bounds.height);
     }
 
@@ -61,7 +64,7 @@ impl Tui {
     }
 
     pub(crate) fn handle_event(&mut self, event: TermEvent) -> EventResponse {
-        if matches!(event, TermEvent::Char('\t')) {
+        if matches!(event, TermEvent::Tab) {
             self.focus = self.focus.next_focus();
             *EVENT_THREAD_ACCEPT_EXIT.lock().unwrap() = self.focus.should_exit();
             return EventResponse::Ok;
@@ -74,28 +77,35 @@ impl Tui {
                 TermEvent::Char('M') => self.player.last_renderer(),
                 TermEvent::Char('r') => return EventResponse::Restart,
                 TermEvent::Char('p') => return EventResponse::PlayPause,
-                _ => {},
-            }
+                _ => {}
+            },
             TuiFocus::Search => match event {
                 TermEvent::Backspace => self.search.handle_backspace(),
                 TermEvent::Down => self.search.handle_arrow_down(),
                 TermEvent::Up => self.search.handle_arrow_up(),
-                TermEvent::Char('\n') => {
+                TermEvent::Enter => {
                     if let Some(path) = self.search.handle_enter() {
                         return EventResponse::ChangeSource(path);
                     }
-                },
+                }
                 TermEvent::Char(c) => self.search.handle_char(c),
-                _ => {},
-            }
+                _ => {}
+            },
         }
 
         EventResponse::Ok
     }
 
-    pub(crate) fn render(&mut self, img: &RgbImage, path: &str, frame_time: Duration) -> String {
-        let mut frame = self.player.render(img, self.char_height);
+    pub(crate) fn render(
+        &mut self,
+        img: &RgbImage,
+        path: &str,
+        frame_time: Duration,
+        terminal: &Terminal<impl TermWrite>,
+    ) -> String {
+        self.update_size(terminal);
 
+        let mut frame = self.player.render(img, self.char_height);
 
         let renderer_name = self.player.renderer.name();
 
@@ -109,19 +119,30 @@ impl Tui {
 
         frame.extend(
             [
-                format!("╔{}╗{}", "═".repeat(longest), info_spacer.clone()),
-                format!("║ Now Playing: {}{}║{}", path, " ".repeat(longest - path.width_cjk() - 14), info_spacer.clone()),
+                format!("╔{}╗{}", "═".repeat(longest), info_spacer),
+                format!(
+                    "║ Now Playing: {}{}║{}",
+                    path,
+                    " ".repeat(longest - path.width_cjk() - 14),
+                    info_spacer
+                ),
                 format!(
                     "║ Current Renderer: {}, Frametime: {}{}║{}",
                     renderer_name,
                     frametime_str,
                     // " ".repeat(longest - renderer_name.len() - 19),
                     " ".repeat(longest - renderer_name.len() - frametime_str.len() - 32),
-                    info_spacer.clone()
+                    info_spacer
                 ),
-                format!("║ {}{}║{}", HELP_TEXT, " ".repeat(longest - HELP_TEXT.len() - 1), info_spacer.clone()),
+                format!(
+                    "║ {}{}║{}",
+                    HELP_TEXT,
+                    " ".repeat(longest - HELP_TEXT.len() - 1),
+                    info_spacer
+                ),
                 format!("╚{}╝{}", "═".repeat(longest), info_spacer),
-            ].into_iter()
+            ]
+            .into_iter(),
         );
 
         for (line, search_line) in frame.iter_mut().zip(self.search.draw().iter()) {
@@ -129,10 +150,7 @@ impl Tui {
         }
 
         self.cursor_pos = match self.focus {
-            TuiFocus::Player => (
-                (HELP_TEXT.len() + 3) as u16,
-                (frame.len() - 1) as u16,
-            ),
+            TuiFocus::Player => ((HELP_TEXT.len() + 3) as u16, (frame.len() - 1) as u16),
             TuiFocus::Search => (
                 self.player.bounds.width as u16 + self.search.cursor_x(),
                 self.search.cursor_y(),
@@ -186,7 +204,10 @@ impl Area {
     }
 
     pub(crate) fn without_border(&self) -> Self {
-        Self { width: self.width - 2, height: self.height - 2 }
+        Self {
+            width: self.width - 2,
+            height: self.height - 2,
+        }
     }
 }
 
@@ -197,7 +218,10 @@ struct Player {
 
 impl Player {
     fn new(width: u32, height: u32, renderer: Renderer) -> Self {
-        Self { bounds: Area { width, height }, renderer }
+        Self {
+            bounds: Area { width, height },
+            renderer,
+        }
     }
 
     fn update_size(&mut self, width: u32, height: u32) {
@@ -218,10 +242,11 @@ impl Player {
         let frame = self.renderer.render_player(img, inner_bounds, char_height);
 
         iter::once(format!("╭{}╮", "─".repeat(inner_bounds.width as usize)))
-            .chain(
-                frame.into_iter().map(|line| format!("│{}│", line))
-            )
-            .chain(iter::once(format!("╰{}╯", "─".repeat(inner_bounds.width as usize))))
+            .chain(frame.into_iter().map(|line| format!("│{}│", line)))
+            .chain(iter::once(format!(
+                "╰{}╯",
+                "─".repeat(inner_bounds.width as usize)
+            )))
             .collect()
     }
 }
@@ -235,7 +260,12 @@ struct Search {
 
 impl Search {
     fn new(width: u32, height: u32) -> Self {
-        Self { bounds: Area { width, height }, selected: None, query: "".to_string(), results: Vec::new() }
+        Self {
+            bounds: Area { width, height },
+            selected: None,
+            query: "".to_string(),
+            results: Vec::new(),
+        }
     }
 
     fn update_size(&mut self, width: u32, height: u32) {
@@ -300,7 +330,11 @@ impl Search {
                 self.results = results;
             }
             Err(err) => {
-                self.results = vec![SearchResult { title: err.to_string(), uploader: String::new(), path: String::new() } ];
+                self.results = vec![SearchResult {
+                    title: err.to_string(),
+                    uploader: String::new(),
+                    path: String::new(),
+                }];
             }
         }
 
@@ -310,7 +344,9 @@ impl Search {
     fn draw(&self) -> Vec<String> {
         let query_box_width = self.bounds.width as isize - 13;
 
-        let truncated_query = self.query.chars()
+        let truncated_query = self
+            .query
+            .chars()
             .skip((self.query.len() as isize - query_box_width).max(0) as usize)
             .take(query_box_width as usize)
             .collect::<String>();
@@ -323,37 +359,48 @@ impl Search {
             None
         } else {
             // We just checked that the results vec is not empty
-            Some(results.next().unwrap().draw(self.bounds.width, true).into_iter())
-        }
-            .into_iter()
-            .chain(
-                results.take(num_results - 1)
-                    .map(|r| r.draw(self.bounds.width, false).into_iter())
+            Some(
+                results
+                    .next()
+                    .unwrap()
+                    .draw(self.bounds.width, true)
+                    .into_iter(),
             )
-            .flatten()
-            .collect();
+        }
+        .into_iter()
+        .chain(
+            results
+                .take(num_results - 1)
+                .map(|r| r.draw(self.bounds.width, false).into_iter()),
+        )
+        .flatten()
+        .collect();
 
         let rendered_results_len = rendered_results.len();
 
-        iter::once(format!("╔════════╦{}╗", "═".repeat(self.bounds.width as usize - 11)))
-            .chain(iter::once(
-                format!(
-                    "║ Search ║ {}{} ║",
-                    truncated_query,
-                    " ".repeat(query_box_width as usize - truncated_query.len()),
-                )
-            ))
-            .chain(iter::once(
-                format!("╠════════╩{}╣", "═".repeat(self.bounds.width as usize - 11))
-            ))
-            .chain(rendered_results.into_iter())
-            .chain(iter::repeat(format!("║{}║", " ".repeat(self.bounds.width as usize - 2)))
-                .take(self.bounds.height as usize - 4 - rendered_results_len)
-            )
-            .chain(iter::once(
-                format!("╚{}╝", "═".repeat(self.bounds.width as usize - 2))
-            ))
-            .collect()
+        iter::once(format!(
+            "╔════════╦{}╗",
+            "═".repeat(self.bounds.width as usize - 11)
+        ))
+        .chain(iter::once(format!(
+            "║ Search ║ {}{} ║",
+            truncated_query,
+            " ".repeat(query_box_width as usize - truncated_query.len()),
+        )))
+        .chain(iter::once(format!(
+            "╠════════╩{}╣",
+            "═".repeat(self.bounds.width as usize - 11)
+        )))
+        .chain(rendered_results.into_iter())
+        .chain(
+            iter::repeat(format!("║{}║", " ".repeat(self.bounds.width as usize - 2)))
+                .take(self.bounds.height as usize - 4 - rendered_results_len),
+        )
+        .chain(iter::once(format!(
+            "╚{}╝",
+            "═".repeat(self.bounds.width as usize - 2)
+        )))
+        .collect()
     }
 }
 
@@ -375,16 +422,28 @@ impl SearchResult {
 
         let display_area = width as usize - 4;
 
-        let title_string = self.title.graphemes(true)
+        let title_string = self
+            .title
+            .graphemes(true)
             .scan(0_usize, |width, grapheme| {
                 *width += grapheme.width_cjk();
-                if *width > display_area { None } else { Some(grapheme) }
+                if *width > display_area {
+                    None
+                } else {
+                    Some(grapheme)
+                }
             })
             .collect::<String>();
-        let uploader_string = self.uploader.graphemes(true)
+        let uploader_string = self
+            .uploader
+            .graphemes(true)
             .scan(0_usize, |width, grapheme| {
                 *width += grapheme.width_cjk();
-                if *width > display_area { None } else { Some(grapheme) }
+                if *width > display_area {
+                    None
+                } else {
+                    Some(grapheme)
+                }
             })
             .collect::<String>();
 
@@ -395,9 +454,17 @@ impl SearchResult {
         //     .unwrap();
         // writeln!(f, "{:?}", self).unwrap();
 
-        frame.push(format!("║ {}{} ║", title_string.bold(), " ".repeat(display_area - title_string.width_cjk())));
+        frame.push(format!(
+            "║ {}{} ║",
+            title_string.bold(),
+            " ".repeat(display_area - title_string.width_cjk())
+        ));
 
-        frame.push(format!("║ {}{} ║", uploader_string, " ".repeat(display_area - uploader_string.width_cjk())));
+        frame.push(format!(
+            "║ {}{} ║",
+            uploader_string,
+            " ".repeat(display_area - uploader_string.width_cjk())
+        ));
 
         frame
     }

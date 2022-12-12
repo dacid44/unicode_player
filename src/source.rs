@@ -1,9 +1,11 @@
 use std::error::Error;
-use std::{io, thread};
-use std::io::{Cursor, Read, Stderr};
+use std::io::{Cursor, Read};
 use std::process::{Command, Stdio};
+use std::thread;
 use std::time::Duration;
+
 use image::{Rgb, RgbImage};
+
 use crate::ImageReader;
 
 pub(crate) struct Source {
@@ -114,11 +116,11 @@ impl SourceStream {
         match self {
             SourceStream::Blank => {}
             SourceStream::File { ffmpeg, .. } => {
-                ffmpeg.kill();
+                ffmpeg.kill().unwrap();
             }
             SourceStream::YouTube { ytdl, ffmpeg, .. } => {
-                ytdl.kill();
-                ffmpeg.kill();
+                ytdl.kill().unwrap();
+                ffmpeg.kill().unwrap();
             }
         }
     }

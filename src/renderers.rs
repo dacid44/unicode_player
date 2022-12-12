@@ -1,8 +1,9 @@
 use std::iter;
-use colored::Colorize;
-use hex_literal::hex;
-use image::{Rgb, RgbImage};
+
 use clap::ArgEnum;
+use colored::Colorize;
+use image::{Rgb, RgbImage};
+
 use crate::tui::Area;
 
 #[derive(Clone, ArgEnum)]
@@ -92,28 +93,14 @@ impl Renderer {
         }
 
         if img_ratio > bounds_ratio {
-            let mut h = fudge_even_odd((bounds.width as f32 / img_ratio).round() as u32, bounds.height).min(bounds.height);
+            let h = fudge_even_odd((bounds.width as f32 / img_ratio).round() as u32, bounds.height).min(bounds.height);
             let gap = (bounds.height - h) / 2;
             (Area { width: bounds.width * self.subpixels().0, height: h * self.subpixels().1 }, 0, gap)
         } else {
-            let mut w = fudge_even_odd((bounds.height as f32 * img_ratio).round() as u32, bounds.width).min(bounds.width);
+            let w = fudge_even_odd((bounds.height as f32 * img_ratio).round() as u32, bounds.width).min(bounds.width);
             let gap = (bounds.width - w) / 2;
             (Area { width: w * self.subpixels().0, height: bounds.height * self.subpixels().1 }, gap, 0)
         }
-    }
-
-    pub fn render(&self, img: &RgbImage, char_height: f32) -> String {
-        let dims = self.calc_dims((img.width(), img.height()), char_height);
-        let scaled_img = image::imageops::resize(img, dims.0, dims.1, image::imageops::FilterType::Triangle);
-        let mut frame = String::new();
-        for i in (0..dims.1).step_by(self.subpixels().1 as usize) {
-            for j in (0..dims.0).step_by(self.subpixels().0 as usize) {
-                frame.push_str(&*self.render_pixel(&scaled_img, (j, i)))
-            }
-            frame.push_str("\r\n");
-        }
-        frame.push_str("press 'm'/'M' to cycle mode, 'q' to exit: ");
-        frame
     }
 
     pub(crate) fn render_player(&self, img: &RgbImage, bounds: Area, char_height: f32) -> Vec<String> {
@@ -198,7 +185,6 @@ impl Renderer {
                     .on_truecolor(extremes.1[0], extremes.1[1], extremes.1[2])
                     .to_string()
             },
-            _ => "".to_string(),
         }
     }
 }
@@ -250,8 +236,8 @@ fn get_quarters_char(subpixels: (bool, bool, bool, bool)) -> &'static str {
 
 fn get_braille_char(subpixels: [bool; 8]) -> char {
     let mut c: u32 = 10240;
-    for i in 0..8 {
-        if subpixels[i] {
+    for (i, s) in subpixels.iter().enumerate() {
+        if *s {
             c += 2u32.pow(i as u32)
         }
     }
