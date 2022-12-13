@@ -9,7 +9,7 @@ edition = "2021"
 image = "0.24.1"
 iter-read = "0.3.1"
 colored = "2"
-pancurses = "0.17"
+#pancurses = "0.17"
 crossterm = "0.25.0"
 clap = { version = "3.1.2", features = ["derive"] }
 hex-literal = "0.3.4"

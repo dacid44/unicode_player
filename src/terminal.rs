@@ -4,15 +4,15 @@ use std::io::{stdin, Stdin, stdout, Stdout, Write};
 use crossterm::event::{
     Event as CtEvent, KeyCode as CtKeyCode, KeyEvent as CtKeyEvent, KeyEventKind as CtKeyEventKind,
 };
-use termion::event::{Event as TmEvent, Key as TmKey};
-use termion::input::TermRead;
-use termion::raw::IntoRawMode;
-use termion::screen::IntoAlternateScreen;
+
+#[cfg(not(windows))]
+use termion::{event::Event as TmEvent, event::Key as TmKey, input::TermRead, raw::IntoRawMode, screen::IntoAlternateScreen};
 
 pub(crate) trait TermWrite {}
 
 // TODO: Maybe change to two separate types and compile to one or the other based on OS
 pub(crate) enum TermWriter {
+    #[cfg(not(windows))]
     Termion(termion::raw::RawTerminal<termion::screen::AlternateScreen<Stdout>>),
     Crossterm(Stdout),
 }
@@ -22,6 +22,7 @@ impl TermWrite for TermWriter {}
 impl Drop for TermWriter {
     fn drop(&mut self) {
         match self {
+            #[cfg(not(windows))]
             Self::Termion(_) => {}
             Self::Crossterm(w) => {
                 crossterm::terminal::disable_raw_mode().unwrap();
@@ -37,11 +38,13 @@ impl TermWrite for TermUtility {}
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum TermKind {
+    #[cfg(not(windows))]
     Termion,
     Crossterm,
 }
 
 pub(crate) enum TermEventStream {
+    #[cfg(not(windows))]
     Termion(termion::input::Events<Stdin>),
     Crossterm,
 }
@@ -52,6 +55,7 @@ impl Iterator for TermEventStream {
     fn next(&mut self) -> Option<Self::Item> {
         Some(loop {
             if let Some(term_event) = match self {
+                #[cfg(not(windows))]
                 Self::Termion(events) => TermEvent::from_termion(events.next()?.unwrap()),
                 Self::Crossterm => TermEvent::from_crossterm(crossterm::event::read().unwrap()),
             } {
@@ -76,6 +80,7 @@ impl<T: TermWrite> Terminal<T> {
 
     pub(crate) fn size(&self) -> (u16, u16) {
         match self.kind {
+            #[cfg(not(windows))]
             TermKind::Termion => termion::terminal_size().unwrap(),
             TermKind::Crossterm => crossterm::terminal::size().unwrap(),
         }
@@ -83,6 +88,7 @@ impl<T: TermWrite> Terminal<T> {
 
     pub(crate) fn events(&self) -> TermEventStream {
         match self.kind {
+            #[cfg(not(windows))]
             TermKind::Termion => TermEventStream::Termion(stdin().events()),
             TermKind::Crossterm => TermEventStream::Crossterm,
         }
@@ -90,6 +96,7 @@ impl<T: TermWrite> Terminal<T> {
 }
 
 impl Terminal<TermWriter> {
+    #[cfg(not(windows))]
     pub(crate) fn new_termion() -> Self {
         Self {
             writer: TermWriter::Termion(
@@ -112,11 +119,28 @@ impl Terminal<TermWriter> {
             kind: TermKind::Crossterm,
         }
     }
+
+    pub(crate) fn move_cursor(&mut self, x: u16, y: u16) -> std::io::Result<()> {
+        match self.writer.borrow_mut() {
+            #[cfg(not(windows))]
+            TermWriter::Termion(w) => write!(w, "{}", termion::cursor::Goto(x, y)),
+            TermWriter::Crossterm(w) => crossterm::queue!(w, crossterm::cursor::MoveTo(x - 1, y - 1)),
+        }
+    }
+
+    pub(crate) fn clear(&mut self) -> std::io::Result<()> {
+        match self.writer.borrow_mut() {
+            #[cfg(not(windows))]
+            TermWriter::Termion(w) => write!(w, "{}", termion::clear::All),
+            TermWriter::Crossterm(w) => crossterm::queue!(w, crossterm::terminal::Clear(crossterm::terminal::ClearType::All)),
+        }
+    }
 }
 
 impl Write for Terminal<TermWriter> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self.writer.borrow_mut() {
+            #[cfg(not(windows))]
             TermWriter::Termion(w) => w.write(buf),
             TermWriter::Crossterm(w) => w.write(buf),
         }
@@ -124,6 +148,7 @@ impl Write for Terminal<TermWriter> {
 
     fn flush(&mut self) -> std::io::Result<()> {
         match self.writer.borrow_mut() {
+            #[cfg(not(windows))]
             TermWriter::Termion(w) => w.flush(),
             TermWriter::Crossterm(w) => w.flush(),
         }
@@ -143,6 +168,7 @@ pub(crate) enum TermEvent {
 }
 
 impl TermEvent {
+    #[cfg(not(windows))]
     fn from_termion(event: TmEvent) -> Option<Self> {
         match event {
             TmEvent::Key(TmKey::Char('\t')) => Some(Self::Tab),
@@ -185,18 +211,18 @@ impl TermEvent {
     }
 }
 
-impl TryFrom<TmEvent> for TermEvent {
-    type Error = ();
-
-    fn try_from(value: TmEvent) -> Result<Self, Self::Error> {
-        Self::from_termion(value).ok_or(())
-    }
-}
-
-impl TryFrom<CtEvent> for TermEvent {
-    type Error = ();
-
-    fn try_from(value: CtEvent) -> Result<Self, Self::Error> {
-        Self::from_crossterm(value).ok_or(())
-    }
-}
+// impl TryFrom<TmEvent> for TermEvent {
+//     type Error = ();
+//
+//     fn try_from(value: TmEvent) -> Result<Self, Self::Error> {
+//         Self::from_termion(value).ok_or(())
+//     }
+// }
+//
+// impl TryFrom<CtEvent> for TermEvent {
+//     type Error = ();
+//
+//     fn try_from(value: CtEvent) -> Result<Self, Self::Error> {
+//         Self::from_crossterm(value).ok_or(())
+//     }
+// }

@@ -91,9 +91,8 @@ fn main() {
 
         let t0 = Instant::now();
 
-        write!(terminal, "{}", termion::cursor::Goto(1, 1)).unwrap();
-        write!(terminal, "{}", termion::clear::All).unwrap();
-        // write!(stdout, "{}", renderer.render(&img, cli.char_height)).unwrap();
+        terminal.move_cursor(1, 1).unwrap();
+        terminal.clear().unwrap();
         write!(
             terminal,
             "{}",
@@ -105,12 +104,7 @@ fn main() {
             )
         )
         .unwrap();
-        write!(
-            terminal,
-            "{}",
-            termion::cursor::Goto(tui.cursor_x(), tui.cursor_y())
-        )
-        .unwrap();
+        terminal.move_cursor(tui.cursor_x(), tui.cursor_y()).unwrap();
         terminal.flush().unwrap();
 
         frame_times.pop_front();

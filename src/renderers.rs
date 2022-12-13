@@ -51,34 +51,34 @@ impl Renderer {
         }
     }
 
-    fn calc_dims(&self, img_dims: (u32, u32), char_height: f32) -> (u32, u32) {
-        let char_height = char_height * self.subpixels().0 as f32 / self.subpixels().1 as f32;
-        let (tw, th) = {
-            let mut dims = termion::terminal_size().unwrap();
-            if dims.0 == 0 || dims.1 == 0 {
-                dims = (80, 24)
-            }
-            (dims.0 as u32 * self.subpixels().0, dims.1 as u32 * self.subpixels().1)
-        };
-        let img_ratio = (img_dims.0 as f32 / img_dims.1 as f32) * char_height;
-        if img_ratio > (tw as f32 / th as f32) {
-            (
-                tw as u32,
-                std::cmp::min(
-                    (tw as f32 / img_ratio / self.subpixels().1 as f32) as u32 * self.subpixels().1,
-                    th as u32 * self.subpixels().1,
-                )
-            )
-        } else {
-            (
-                std::cmp::min(
-                    (th as f32 * img_ratio / self.subpixels().0 as f32) as u32 * self.subpixels().0,
-                    tw as u32 * self.subpixels().0
-                ),
-                th as u32
-            )
-        }
-    }
+    // fn calc_dims(&self, img_dims: (u32, u32), char_height: f32) -> (u32, u32) {
+    //     let char_height = char_height * self.subpixels().0 as f32 / self.subpixels().1 as f32;
+    //     let (tw, th) = {
+    //         let mut dims = termion::terminal_size().unwrap();
+    //         if dims.0 == 0 || dims.1 == 0 {
+    //             dims = (80, 24)
+    //         }
+    //         (dims.0 as u32 * self.subpixels().0, dims.1 as u32 * self.subpixels().1)
+    //     };
+    //     let img_ratio = (img_dims.0 as f32 / img_dims.1 as f32) * char_height;
+    //     if img_ratio > (tw as f32 / th as f32) {
+    //         (
+    //             tw as u32,
+    //             std::cmp::min(
+    //                 (tw as f32 / img_ratio / self.subpixels().1 as f32) as u32 * self.subpixels().1,
+    //                 th as u32 * self.subpixels().1,
+    //             )
+    //         )
+    //     } else {
+    //         (
+    //             std::cmp::min(
+    //                 (th as f32 * img_ratio / self.subpixels().0 as f32) as u32 * self.subpixels().0,
+    //                 tw as u32 * self.subpixels().0
+    //             ),
+    //             th as u32
+    //         )
+    //     }
+    // }
 
     fn calc_dims_fixed(&self, img_dims: (u32, u32), bounds: Area, char_height: f32) -> (Area, u32, u32) {
         let img_ratio = img_dims.0 as f32 / img_dims.1 as f32 * char_height;
