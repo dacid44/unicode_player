@@ -26,3 +26,6 @@ unicode-width = "0.1.5"
 
 [target.'cfg(not(windows))'.dependencies]
 termion = "2"
+
+[target.'cfg(windows)'.dependencies]
+named_pipe = "0.4.1"

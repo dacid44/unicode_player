@@ -98,6 +98,7 @@ impl Source {
     }
 }
 
+#[cfg(not(windows))]
 enum SourceStream {
     Blank,
     File {
@@ -107,6 +108,24 @@ enum SourceStream {
     YouTube {
         ytdl: std::process::Child,
         ffmpeg: std::process::Child,
+        stream: std::process::ChildStdout,
+    },
+}
+
+#[cfg(windows)]
+enum SourceStream {
+    Blank,
+    File {
+        ffmpeg: std::process::Child,
+        play: std::process::Child,
+        pipe: named_pipe::PipeServer,
+        stream: std::process::ChildStdout,
+    },
+    YouTube {
+        ytdl: std::process::Child,
+        ffmpeg: std::process::Child,
+        play: std::process::Child,
+        pipe: named_pipe::PipeServer,
         stream: std::process::ChildStdout,
     },
 }
