@@ -1,17 +1,19 @@
 use std::iter;
 
-use clap::ArgEnum;
 use colored::Colorize;
 use image::{Rgb, RgbImage};
 
+use clap::ValueEnum;
+
 use crate::tui::Area;
 
-#[derive(Clone, ArgEnum)]
+#[derive(Copy, Clone, ValueEnum)]
 pub enum Renderer {
     PixelChar,
     HalfChar,
     Quarters,
     Braille,
+    BBS,
 }
 
 impl Renderer {
@@ -20,7 +22,8 @@ impl Renderer {
             Self::PixelChar => Self::HalfChar,
             Self::HalfChar => Self::Quarters,
             Self::Quarters => Self::Braille,
-            Self::Braille => Self::PixelChar
+            Self::Braille => Self::PixelChar,
+            Self::BBS => Self::BBS,
         }
     }
 
@@ -30,6 +33,7 @@ impl Renderer {
             Self::HalfChar => Self::PixelChar,
             Self::Quarters => Self::HalfChar,
             Self::Braille => Self::Quarters,
+            Self::BBS => Self::BBS,
         }
     }
 
@@ -39,6 +43,7 @@ impl Renderer {
             Self::HalfChar => (1, 2),
             Self::Quarters => (2, 2),
             Self::Braille => (2, 4),
+            Self::BBS => (2, 2),
         }
     }
 
@@ -48,6 +53,7 @@ impl Renderer {
             Renderer::HalfChar => "Half Chars".to_string(),
             Renderer::Quarters => "Quarters".to_string(),
             Renderer::Braille => "Braille".to_string(),
+            Renderer::BBS => "BBS".to_string(),
         }
     }
 
@@ -185,6 +191,21 @@ impl Renderer {
                     .on_truecolor(extremes.1[0], extremes.1[1], extremes.1[2])
                     .to_string()
             },
+            Self::BBS => {
+                let px = img.get_pixel(loc.0, loc.1);
+                let px2 = img.get_pixel(loc.0 + 1, loc.1);
+                let px3 = img.get_pixel(loc.0, loc.1 + 1);
+                let px4 = img.get_pixel(loc.0 + 1, loc.1 + 1);
+                let black = Rgb::from([0u8, 0u8, 0u8]);
+                let white = Rgb::from([255u8, 255u8, 255u8]);
+                get_quarters_char((
+                    is_closer_to_fg(px, &white, &black),
+                    is_closer_to_fg(px2, &white, &black),
+                    is_closer_to_fg(px3, &white, &black),
+                    is_closer_to_fg(px4, &white, &black)
+                ))
+                    .to_string()
+            }
         }
     }
 }

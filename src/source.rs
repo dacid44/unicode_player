@@ -11,30 +11,43 @@ use crate::ImageReader;
 pub(crate) struct Source {
     source_stream: SourceStream,
     paused: bool,
-    finished: bool,
+    pub(crate) finished: bool,
     framerate: u32,
     last_frame: RgbImage,
 }
 
 impl Source {
-    pub(crate) fn new(path: Option<&str>, framerate: u32) -> Result<Self, Box<dyn Error>> {
+    pub(crate) fn new(path: Option<&str>, framerate: u32, to_file: bool) -> Result<Self, Box<dyn Error>> {
+        let framerate_str = format!("fps={}", framerate);
+
+        let direct_stderr = || if to_file {
+            Stdio::inherit()
+        } else {
+            Stdio::null()
+        };
+
         if let Some(path) = path {
             if path.contains("http") {
                 let mut ytdl_process = Command::new("yt-dlp")
                     .args(&["-o", "-", path])
                     .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
+                    .stderr(direct_stderr())
                     .spawn()?;
 
-                let mut ffmpeg_process = Command::new("ffmpeg")
-                    .args(&[
+                let ffmpeg_args = if to_file { vec![
+                    "-i", "-",
+                    "-f", "image2pipe", "-c:v", "bmp", "-vf", &framerate_str, "-",
+                ] } else { vec![
                         "-re", "-i", "-",
-                        "-f", "image2pipe", "-c:v", "bmp", "-vf", &format!("fps={}", framerate), "-",
-                        "-f", "pulse", "\"unicode_player\""
-                    ])
+                        "-f", "image2pipe", "-c:v", "bmp", "-vf", &framerate_str, "-",
+                        "-f", "pulse", "\"unicode_player\"",
+                ] };
+
+                let mut ffmpeg_process = Command::new("ffmpeg")
+                    .args(&ffmpeg_args)
                     .stdin(Stdio::from(ytdl_process.stdout.take().ok_or("Couldn't get yt-dlp stdout")?))
                     .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
+                    .stderr(direct_stderr())
                     .spawn()?;
 
                 let stream = ffmpeg_process.stdout.take().ok_or("Couldn't get ffmpeg stdout")?;
@@ -47,14 +60,19 @@ impl Source {
                     last_frame: blank_frame(),
                 })
             } else {
+                let ffmpeg_args = if to_file { vec![
+                    "-i", path,
+                    "-f", "image2pipe", "-c:v", "bmp", "-vf", &framerate_str, "-",
+                ] } else { vec![
+                    "-re", "-i", path,
+                    "-f", "image2pipe", "-c:v", "bmp", "-vf", &framerate_str, "-",
+                    "-f", "pulse", "\"unicode_player\"",
+                ] };
+
                 let mut ffmpeg_process = Command::new("ffmpeg")
-                    .args(&[
-                        "-re", "-i", path,
-                        "-f", "image2pipe", "-c:v", "bmp", "-vf", &format!("fps={}", framerate), "-",
-                        "-f", "pulse", "\"unicode_player\""
-                    ])
+                    .args(&ffmpeg_args)
                     .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
+                    // .stderr(direct_stderr())
                     .spawn()?;
 
                 let stream = ffmpeg_process.stdout.take().ok_or("Couldn't get ffmpeg stdout")?;
@@ -117,15 +135,15 @@ enum SourceStream {
     Blank,
     File {
         ffmpeg: std::process::Child,
-        play: std::process::Child,
-        pipe: named_pipe::PipeServer,
+        // play: std::process::Child,
+        // pipe: named_pipe::PipeServer,
         stream: std::process::ChildStdout,
     },
     YouTube {
         ytdl: std::process::Child,
         ffmpeg: std::process::Child,
-        play: std::process::Child,
-        pipe: named_pipe::PipeServer,
+        // play: std::process::Child,
+        // pipe: named_pipe::PipeServer,
         stream: std::process::ChildStdout,
     },
 }
@@ -135,11 +153,11 @@ impl SourceStream {
         match self {
             SourceStream::Blank => {}
             SourceStream::File { ffmpeg, .. } => {
-                ffmpeg.kill().unwrap();
+                ffmpeg.kill();
             }
             SourceStream::YouTube { ytdl, ffmpeg, .. } => {
-                ytdl.kill().unwrap();
-                ffmpeg.kill().unwrap();
+                ytdl.kill();
+                ffmpeg.kill();
             }
         }
     }
