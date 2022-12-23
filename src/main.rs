@@ -89,7 +89,7 @@ fn main() {
 
         while !source.finished {
             let frame = renderer.render_player(source.next_frame(), area, cli.char_height);
-            write!(file, "\n\n{}", frame.join("\n")).unwrap();
+            write!(file, "\n{}", frame.join("")).unwrap();
         }
 
         file.flush().unwrap();
